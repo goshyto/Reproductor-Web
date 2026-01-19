@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pro Player - Performance Edition</title>
+    <style>
+    /* ==========================================================================
+       1. VARIABLES Y CONFIGURACIÓN GLOBAL (CSS)
+       GUÍA PARA PRINCIPIANTES:
+       Esta sección define la "paleta de colores" de la aplicación.
+       Si quieres cambiar el color de los botones o el fondo, solo cambia los códigos de color aquí.
+       ========================================================================== */
+    :root {
+        /* Fondo principal de la aplicación (Negro suave) */
+        --bg-color: #121212;
+        /* Fondo de los reproductores (Gris oscuro) */
+        --deck-bg: #1e1e1e;
+        /* Color de acento principal (Cian/Azul claro) - Usado en botones activos y decoraciones */
+        --accent: #00bcd4;
+        /* Color del botón al pasar el mouse por encima (Un poco más oscuro) */
+        --accent-hover: #008ba3;
+        /* Color Naranja para botones CUE y elementos de espectro */
+        --cue-color: #ff9800;
+        /* Color Rojo para botones de parada (Stop) o peligro */
+        --danger: #ff5252;
+        /* Color específico para la visualización de espectro en vivo */
+        --spectrum-color: #ff9800;
+        /* Color del texto principal (Blanco hueso) */
+        --text-main: #e0e0e0;
+        /* Color de texto secundario (Gris) - Para etiquetas menos importantes */
+        --text-dim: #a0a0a0;
+        /* Color de los bordes finos que separan secciones */
+        --border-color: #333;
+        /* Fondo de la canción que se está reproduciendo en la lista */
+        --highlight-current: rgba(0, 188, 212, 0.2);
+        /* Fondo de la canción siguiente en la lista */
+        --highlight-next: rgba(255, 193, 7, 0.2);
+        /* Efecto de resplandor (brillo) cuando el botón Play está activo */
+        --playing-glow: 0 0 10px var(--accent);
+    }
+
+    /* Configuración básica para que los tamaños se calculen incluyendo bordes */
+    * { box-sizing: border-box; user-select: none; }
+
+    /* Configuración del cuerpo de la página (toda la pantalla) */
+    body {
+        margin: 0; padding: 10px;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; /* Tipografía usada */
+        background-color: var(--bg-color); color: var(--text-main);
+        height: 100vh; /* Ocupa el 100% de la altura de la ventana */
+        display: flex; flex-direction: column; /* Organiza los elementos en columna (uno bajo otro) */
+        overflow: hidden; /* Evita barras de desplazamiento en la ventana principal */
+    }
+
+    /* Contenedor principal que agrupa todo */
+    #app-container { display: flex; flex-direction: column; height: 100%; gap: 8px; }
+
+    /* ==========================================================================
+       2. FX PANEL (Panel Superior de Efectos)
+       Aquí se definen los estilos de la fila superior con los 6 mini reproductores.
+       ========================================================================== */
+    #fx-panel {
+        flex: 0 0 160px; /* Altura fija de 160px */
+        display: flex; gap: 5px; /* Espacio entre mini decks */
+        overflow-x: auto; /* Permite desplazamiento horizontal si no caben en pantalla */
+        padding-bottom: 5px;
+        background: #111; border-bottom: 1px solid #333;
+    }
+
+    /* Estilo de cada tarjeta de Mini Deck individual */
+    .mini-deck {
+        flex: 1; min-width: 190px; /* Ancho mínimo para que no se aplasten */
+        background: #181818; border: 1px solid #444; border-radius: 6px;
+        display: flex; padding: 5px; gap: 5px;
+        transition: all 0.2s; position: relative;
+    }
+    /* Estilo cuando un Mini Deck está sonando (Borde de color) */
+    .mini-deck.active-play { border-color: var(--accent); box-shadow: inset 0 0 10px rgba(0, 188, 212, 0.1); }
+
+    /* Número identificador en la esquina (1, 2, 3...) */
+    .md-id { position: absolute; top: 2px; right: 5px; font-size: 0.6rem; color: #444; font-weight: bold; }
+
+    /* Parte principal del mini deck (zona de carga y botones) */
+    .md-main { flex: 1; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
+
+    /* Zona donde se arrastran los archivos de audio */
+    .md-drop-zone {
+        flex: 1; border: 2px dashed #555; border-radius: 4px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.7rem; color: #777; text-align: center; padding: 2px;
+        word-break: break-all; overflow: hidden; background: #0f0f0f; cursor: pointer;
+    }
+    /* Cambio de color al pasar un archivo por encima */
+    .md-drop-zone.drag-over { background: #222; border-color: var(--accent); color: var(--accent); }
+    /* Estilo cuando ya tiene un archivo cargado */
+    .md-drop-zone.has-file { border-style: solid; border-color: #333; color: var(--accent); font-weight: bold; background: #000; }
+
+    /* Visualización del tiempo (00:00) */
+    .md-time { font-family: 'Consolas', monospace; font-size: 0.75rem; text-align: center; color: #fff; background: #000; border-radius: 3px; padding: 2px; }
+
+    /* Rejilla de botones del mini deck */
+    .md-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; }
+
+    /* Estilo genérico de los botones pequeños */
+    .md-btn { background: #333; border: 1px solid #444; color: #fff; border-radius: 3px; font-size: 0.65rem; cursor: pointer; padding: 4px 0; }
+    .md-btn:hover { background: #444; }
+
+    /* Botones específicos */
+    .md-btn-play { grid-column: span 2; background: #2e3b4e; color: var(--accent); font-weight: bold; } /* Botón Play grande */
+    .md-btn-remove { grid-column: span 2; border-color: #522; color: #d32f2f; margin-top: 2px; } /* Botón Quitar (Rojo) */
+
+    /* Controles de Fade Out (Desvanecimiento) */
+    .md-fade-group { display: flex; gap: 2px; }
+    .md-fade-select { width: 35%; background: #222; color: #aaa; border: 1px solid #444; font-size: 0.6rem; padding: 0; text-align: center; border-radius: 3px; }
+    .md-fade-btn { width: 65%; background: #333; color: #ddd; font-size: 0.6rem; padding: 0; }
+
+    /* Sección del mezclador vertical del mini deck */
+    .md-mixer { width: 30px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; position: relative; }
+    .md-reset-btn { width: 100%; font-size: 0.6rem; padding: 2px 0; margin-top: auto; background: #333; border: 1px solid #555; color: #aaa; cursor: pointer; z-index: 60; }
+    .md-reset-btn:hover { background: #444; color: #fff; }
+    .md-fader-wrap { flex: 1; width: 100%; position: relative; display: flex; justify-content: center; }
+
+    /* Fader (Deslizador) Vertical del Mini Deck */
+    /* Truco: Se usa transform: rotate(-90deg) para ponerlo vertical */
+    input[type=range].md-fader {
+        -webkit-appearance: none; width: 120px; height: 4px; background: transparent;
+        transform: rotate(-90deg); margin: 0; position: absolute; top: 50%; transform: translateY(-50%) rotate(-90deg); z-index: 50;
+    }
+    input[type=range].md-fader::-webkit-slider-runnable-track { width: 100%; height: 4px; background: #222; border-radius: 2px; border: 1px solid #444; }
+    input[type=range].md-fader::-webkit-slider-thumb { -webkit-appearance: none; height: 12px; width: 20px; background: #bbb; border-radius: 2px; margin-top: -4px; cursor: pointer; border: 1px solid #000; }
+
+    /* ==========================================================================
+       3. DECKS PRINCIPALES (Deck 1 y Deck 2)
+       Estilos para los dos reproductores grandes.
+       ========================================================================== */
+    #decks-wrapper { display: flex; flex: 1; gap: 10px; min-height: 0; }
+
+    /* Caja principal de cada Deck */
+    .deck {
+        flex: 1; /* Ocupan el 50% cada uno */
+        background-color: var(--deck-bg); border: 1px solid var(--border-color); border-radius: 8px;
+        display: flex; flex-direction: column; padding: 10px; position: relative;
+    }
+
+    /* Cabecera del Deck (Título y botones de archivo) */
+    .deck-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; padding-bottom: 5px; border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+    .deck-title { font-weight: bold; color: var(--accent); font-size: 1.1rem; margin-right: 10px; }
+    .deck-status { font-size: 0.7rem; font-weight: bold; color: #ff9800; margin-right: auto; } /* Mensaje "Modo Rendimiento" */
+
+    .header-actions { display: flex; gap: 3px; align-items: center; }
+
+    /* Botones de acción de la cabecera */
+    .btn-small { padding: 3px 6px; font-size: 0.7rem; white-space: nowrap; border-radius: 3px; border: 1px solid #444; background: #333; color: #fff; cursor: pointer; }
+    .btn-small:hover { background: #444; }
+    .btn-danger-small { background: #d32f2f; border-color: #b71c1c; color: white; } /* Botones peligrosos (Borrar) */
+    .btn-library { background: #673ab7; border-color: #512da8; color: white; } /* Botón Link Folder */
+
+    /* Botón especial para alternar Visualización (Waveform/Spectrum) */
+    .btn-spacer { margin-left: 40px; position: relative; }
+    /* Línea vertical separadora antes del botón */
+    .btn-spacer::before {
+        content: ''; position: absolute; left: -20px; top: 10%; height: 80%; width: 1px; background: #444;
+    }
+    .btn-viz-wave { background: rgba(0, 188, 212, 0.15); color: var(--accent); border-color: var(--accent); font-weight: bold; }
+    .btn-viz-spec { background: rgba(255, 152, 0, 0.15); color: var(--spectrum-color); border-color: var(--spectrum-color); font-weight: bold; }
+    .btn-viz-disabled { opacity: 0.5; cursor: not-allowed; border-style: dashed; } /* Estado deshabilitado */
+
+    /* Área de Visualización (Onda / Espectro) */
+    .track-info-container { background: #000; border-radius: 4px; margin-bottom: 5px; position: relative; height: 130px; flex-shrink: 0; border: 1px solid #333; display: flex; flex-direction: column; }
+    .waveform-wrapper { position: relative; flex: 1; width: 100%; overflow: hidden; }
+    .waveform-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
+
+    /* Barra de búsqueda (Seek Bar) debajo de la onda */
+    .seek-bar-container { width: 100%; padding: 0 5px; background: #000; height: 12px; display: flex; align-items: center; z-index: 10; }
+    input[type=range].seek-bar { -webkit-appearance: none; width: 100%; background: transparent; margin: 0; }
+    input[type=range].seek-bar:focus { outline: none; }
+    input[type=range].seek-bar::-webkit-slider-runnable-track { width: 100%; height: 3px; background: #333; cursor: pointer; }
+    input[type=range].seek-bar::-webkit-slider-thumb { -webkit-appearance: none; height: 10px; width: 10px; border-radius: 50%; background: #fff; margin-top: -3.5px; cursor: pointer; }
+
+    /* Pantalla de información (Tiempos y nombres) */
+    .info-content { padding: 4px 6px; font-family: 'Consolas', monospace; background: #0a0a0a; border-top: 1px solid #333; z-index: 2; }
+    .info-row { display: flex; justify-content: space-between; font-size: 0.9rem; margin-bottom: 2px; align-items: center; }
+    .song-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 65%; font-weight: bold; font-size: 0.95rem; }
+    .time-display { color: var(--accent); font-weight: bold; font-size: 0.9rem; }
+    .label { color: var(--text-dim); margin-right: 5px; font-size: 0.75rem; }
+    .val-current { color: #fff; }
+    .val-next { color: #ffc107; }
+
+    /* Sección de Botones de Transporte (Play, Stop, Cue, etc.) */
+    .deck-mid-section { display: flex; gap: 8px; margin-bottom: 5px; height: 85px; flex-shrink: 0; }
+    .transport-group { flex: 3; display: flex; flex-direction: column; gap: 4px; }
+    .controls-row-main { display: flex; gap: 4px; height: 50%; }
+    .controls-row-sec { display: flex; gap: 4px; height: 50%; }
+
+    button { transition: all 0.2s; cursor: pointer; }
+    button:active { transform: translateY(1px); } /* Efecto de presionado */
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-large { flex: 1; font-weight: bold; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid #444; background: #333; color: #fff; }
+    .btn-play { background: var(--accent); border-color: var(--accent); color: #000; }
+    .btn-play:hover { background: var(--accent-hover); }
+    /* Estilo brillante cuando el botón Play está activo */
+    .btn-play.is-playing-btn { background: #fff !important; color: var(--accent) !important; box-shadow: 0 0 15px var(--accent); border-color: #fff; }
+    .btn-stop { background: var(--danger); border-color: var(--danger); }
+    .btn-cue { border-color: var(--cue-color); color: var(--cue-color); background: rgba(255,152,0,0.1); }
+    .btn-store { border-style: dashed; font-size: 0.7rem; }
+    .btn-sec { flex: 1; font-size: 0.7rem; padding: 0; background: #333; border: 1px solid #444; color: #fff; border-radius: 4px; }
+    .active-mode { background: #4caf50; border-color: #4caf50; color: white; box-shadow: 0 0 5px rgba(76, 175, 80, 0.5); }
+
+    /* Zona de arrastrar archivos lateral */
+    .drop-zone-side { flex: 1; border: 2px dashed var(--border-color); border-radius: 6px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 0.75rem; color: var(--text-dim); transition: 0.3s; padding: 5px; background: #151515; }
+    .drop-zone-side.drag-over { border-color: var(--accent); background: rgba(0, 188, 212, 0.1); color: var(--accent); }
+
+    /* Cuerpo Inferior del Deck (Playlist y Fader) */
+    .deck-body { display: flex; gap: 8px; flex: 1; min-height: 0; overflow: hidden; }
+    .playlist-container { flex: 1; overflow-y: auto; background: #181818; border: 1px solid var(--border-color); border-radius: 4px; }
+    .playlist-list { list-style: none; padding: 0; margin: 0; }
+    .playlist-item { padding: 5px 8px; border-bottom: 1px solid #2a2a2a; cursor: pointer; font-size: 0.8rem; display: flex; justify-content: space-between; }
+    .playlist-item:hover { background-color: #2a2a2a; }
+    .playlist-item.selected-ui { background-color: #333; }
+    .playlist-item.is-playing { background-color: var(--highlight-current); border-left: 3px solid var(--accent); }
+    .playlist-item.is-next { background-color: var(--highlight-next); border-left: 3px solid #ffc107; }
+
+    /* Tira del Mezclador (Columna derecha del deck) */
+    .mixer-strip { width: 90px; background: #151515; border: 1px solid var(--border-color); border-radius: 4px; display: flex; flex-direction: column; padding: 5px; align-items: center; justify-content: space-between; gap: 0; }
+    .fader-wrapper { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; flex: 1; min-height: 150px; margin-bottom: 5px; }
+
+    /* Fader de Volumen Principal (Vertical) */
+    input[type=range].vertical-fader { -webkit-appearance: none; height: 15px; background: transparent; transform: rotate(-90deg); margin: 0; position: absolute; z-index: 50; }
+    input[type=range].vertical-fader::-webkit-slider-runnable-track { width: 100%; height: 8px; background: #222; border-radius: 4px; border: 1px solid #444; }
+    input[type=range].vertical-fader::-webkit-slider-thumb { -webkit-appearance: none; height: 24px; width: 40px; background: #ddd; border-radius: 3px; margin-top: -9px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.6); border-bottom: 2px solid #999; }
+
+    /* Escala numérica del fader (+6, 0, -5...) */
+    .fader-scale { position: absolute; right: 2px; display: flex; flex-direction: column; justify-content: space-between; font-size: 0.6rem; color: #555; pointer-events: none; top: 50%; transform: translateY(-50%); }
+
+    /* Botones de mezcla (Fade Out, Fade In, Mute) */
+    .mixer-btn-group { display: flex; flex-direction: column; gap: 4px; width: 100%; padding-bottom: 5px; flex-shrink: 0; }
+    .mixer-btn-group select { width: 100%; background: #222; color: #aaa; border: 1px solid #333; font-size: 0.65rem; padding: 2px; }
+    .btn-mixer { font-size: 0.65rem; padding: 4px; width: 100%; background: #333; color: white; border: 1px solid #444; border-radius: 3px; }
+    .btn-mute.active { background: var(--danger); color: white; border-color: red; }
+
+    /* ==========================================================================
+       4. CROSSFADER AREA (Zona inferior de mezcla)
+       ========================================================================== */
+    #mixer-area { height: 120px; background: #1a1a1a; border-top: 1px solid var(--border-color); display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 20px; padding: 10px; margin-top: auto; flex-shrink: 0; }
+    .crossfader-container { display: flex; flex-direction: column; align-items: center; width: 300px; }
+    .fader-labels { display: flex; justify-content: space-between; width: 100%; margin-bottom: 15px; font-size: 0.75rem; color: var(--text-dim); }
+
+    /* Slider horizontal (Crossfader) */
+    input[type=range].crossfader { -webkit-appearance: none; width: 100%; background: transparent; }
+    input[type=range].crossfader::-webkit-slider-thumb { -webkit-appearance: none; height: 35px; width: 20px; background: var(--accent); cursor: pointer; margin-top: -14px; border-radius: 3px; border: 1px solid #fff; }
+    input[type=range].crossfader::-webkit-slider-runnable-track { width: 100%; height: 8px; cursor: pointer; background: #333; border-radius: 4px; border: 1px solid #555; }
+
+    .center-controls { margin-top: 15px; display: flex; gap: 5px; align-items: center; }
+    .center-controls select { background: #222; color: var(--accent); border: 1px solid #444; font-size: 0.75rem; padding: 2px; }
+
+    /* Botones laterales de Automix */
+    .btn-automix-side { width: 80px; height: 50px; background: #333; color: var(--accent); font-weight: bold; border: 1px solid #555; border-radius: 6px; cursor: pointer; font-size: 0.8rem; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: all 0.2s; }
+    .btn-automix-side:hover { background: #444; color: #fff; }
+    .btn-automix-side:active { transform: scale(0.95); }
+    .btn-automix-side:disabled { opacity: 0.3; cursor: default; transform: none; }
+    .btn-automix-side span { font-size: 0.7rem; color: #888; margin-top: 2px; }
+
+    /* ==========================================================================
+       UTILIDADES Y MODALES
+       ========================================================================== */
+    /* Botón flotante de ayuda (?) */
+    #help-btn { position: fixed; bottom: 20px; right: 20px; width: 40px; height: 40px; background: var(--accent); color: #000; border-radius: 50%; border: none; font-weight: bold; font-size: 1.2rem; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); z-index: 2000; }
+
+    /* Ventana Modal de Ayuda */
+    #help-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; justify-content: center; align-items: center; }
+    .help-content { background: #1e1e1e; width: 85%; max-width: 800px; max-height: 90vh; border-radius: 8px; padding: 25px; overflow-y: auto; border: 1px solid var(--accent); box-shadow: 0 0 25px rgba(0,0,0,0.8); }
+    .help-content h2 { color: var(--accent); border-bottom: 1px solid #333; padding-bottom: 10px; margin-top: 0; }
+    .help-content h3 { color: #fff; margin-bottom: 8px; font-size: 1.1rem; border-left: 4px solid var(--accent); padding-left: 10px; margin-top: 20px; background: rgba(255,255,255,0.05); padding-top: 5px; padding-bottom: 5px;}
+    .help-content h4 { color: var(--accent); margin-bottom: 5px; font-size: 0.95rem; margin-top: 10px; }
+    .help-content p, .help-content li { color: #ccc; font-size: 0.9rem; line-height: 1.6; margin-bottom: 5px; }
+
+    /* Estilo para simular teclas de teclado */
+    .key-badge { background: #333; padding: 2px 6px; border-radius: 3px; border: 1px solid #777; font-family: monospace; color: #fff; font-weight: bold; box-shadow: 0 1px 0 #000; }
+    .close-help { float: right; cursor: pointer; font-size: 2rem; color: #fff; margin-top: -10px; }
+
+    /* Créditos del pie de página */
+    #footer-credits { position: fixed; bottom: 5px; left: 10px; font-size: 0.65rem; color: #444; z-index: 5; pointer-events: none; }
+
+    .hidden-input { display: none; }
+
+    /* Menú Contextual (Click derecho) */
+    #context-menu { position: absolute; background: #333; border: 1px solid #555; z-index: 1000; display: none; width: 150px; }
+    #context-menu ul { list-style: none; padding: 0; margin: 0; }
+    #context-menu li { padding: 8px; cursor: pointer; color: #fff; font-size: 0.85rem; }
+    #context-menu li:hover { background: var(--accent); color: #000; }
+
+    /* Personalización de la barra de desplazamiento */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #181818; }
+    ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+
+    /* Tabla de atajos de teclado en la ayuda */
+    table.shortcuts-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    table.shortcuts-table td, table.shortcuts-table th { border: 1px solid #444; padding: 5px; font-size: 0.8rem; text-align: center; color: #ccc; }
+    table.shortcuts-table th { background: #222; color: var(--accent); }
+    </style>
+    <div id="app-container">
+
+    <div id="fx-panel"></div>
+
+    <div id="decks-wrapper">
+
+        <div class="deck" id="deck1">
+            <div class="deck-header">
+                <span class="deck-title">DECK 1</span>
+                <span id="d1-status" class="deck-status"></span>
+                <div class="header-actions">
+                    <input type="file" id="file-input-1" class="hidden-input" multiple accept="audio/*">
+                    <input type="file" id="json-input-1" class="hidden-input" accept=".json">
+                    <input type="file" id="folder-input-1" class="hidden-input" webkitdirectory directory multiple>
+
+                    <button class="btn-small btn-library" onclick="deck1.triggerFolderLink()" title="Vincular Carpeta Local">📂 Link</button>
+                    <!-- BOTÓN NUEVO CON SEPARADOR -->
+                    <button id="d1-btn-viz" class="btn-small btn-spacer btn-viz-wave" onclick="deck1.toggleVizMode()" title="Cambiar Visualización">WAVEFORM</button>
+
+                    <button class="btn-small" onclick="deck1.triggerImport()">+ File</button>
+                    <button class="btn-small btn-danger-small" onclick="deck1.removeSelectedTrack()">- Track</button>
+                    <button class="btn-small btn-danger-small" onclick="deck1.clearPlaylist()">Clear</button>
+                    <button class="btn-small" onclick="deck1.savePlaylist()">Save JSON</button>
+                    <button class="btn-small" onclick="deck1.loadPlaylist()">Load JSON</button>
+                </div>
+            </div>
+            <div class="track-info-container">
+                <div class="waveform-wrapper"><canvas id="waveform-1" class="waveform-canvas"></canvas></div>
+                <div class="seek-bar-container"><input type="range" id="seek-1" class="seek-bar" min="0" value="0" step="0.1"></div>
+                <div class="info-content">
+                    <div class="info-row"><span><span class="label">NOW:</span> <span class="val-current song-name" id="d1-current">---</span></span><span class="time-display" id="d1-time-now">00:00 / 00:00</span></div>
+                    <div class="info-row"><span><span class="label">NEXT:</span> <span class="val-next song-name" id="d1-next">---</span></span><span class="time-display" id="d1-time-next">00:00</span></div>
+                </div>
+            </div>
+            <div class="deck-mid-section">
+                <div class="transport-group">
+                    <div class="controls-row-main">
+                        <button id="d1-btn-play" onclick="deck1.playPause()" class="btn-large btn-play">PLAY</button>
+                        <button onclick="deck1.stop()" class="btn-large btn-stop">STOP</button>
+                        <button onclick="deck1.gotoCue()" class="btn-large btn-cue">CUE</button>
+                        <button onclick="deck1.storeCue()" class="btn-large btn-store">MEM</button>
+                    </div>
+                    <div class="controls-row-sec">
+                        <button onclick="deck1.prev()" class="btn-sec">PREV</button>
+                        <button onclick="deck1.next()" class="btn-sec">NEXT</button>
+                        <button id="d1-mode-p1" onclick="deck1.setMode('play1')" class="btn-sec">1</button>
+                        <button id="d1-mode-pall" onclick="deck1.setMode('playAll')" class="btn-sec">ALL</button>
+                        <button id="d1-mode-l1" onclick="deck1.setMode('loop1')" class="btn-sec">L1</button>
+                        <button id="d1-mode-lall" onclick="deck1.setMode('loopAll')" class="btn-sec">L.ALL</button>
+                        <button id="d1-rnd" onclick="deck1.toggleRandom()" class="btn-sec">RND</button>
+                    </div>
+                </div>
+                <div class="drop-zone-side" id="drop-1">Arrastra<br>Archivos</div>
+            </div>
+            <div class="deck-body">
+                <div class="playlist-container"><ul class="playlist-list" id="list-1"></ul></div>
+                <div class="mixer-strip">
+                    <div class="fader-wrapper" id="fader-wrapper-1">
+                        <div class="fader-scale" id="fader-scale-1"><span>+6</span><span>0</span><span>-5</span><span>-10</span><span>-20</span><span>Min</span></div>
+                        <input type="range" id="vol-1" class="vertical-fader" min="0" max="1.2" step="0.01" value="1">
+                    </div>
+                    <div class="mixer-btn-group">
+                        <select id="time-out-1"><option value="2">2s</option><option value="4" selected>4s</option><option value="6">6s</option><option value="8">8s</option><option value="10">10s</option></select>
+                        <button class="btn-mixer" onclick="deck1.automateFade('out')">FADE OUT</button>
+                        <select id="time-in-1"><option value="2">2s</option><option value="4" selected>4s</option><option value="6">6s</option><option value="8">8s</option><option value="10">10s</option></select>
+                        <button class="btn-mixer" onclick="deck1.automateFade('in')">FADE IN</button>
+                        <button class="btn-mixer" onclick="deck1.automateZero()">0 dB (3s)</button>
+                        <button class="btn-mixer btn-mute" id="mute-1" onclick="deck1.toggleMute()">MUTE</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="deck" id="deck2">
+            <div class="deck-header">
+                <span class="deck-title">DECK 2</span>
+                <span id="d2-status" class="deck-status"></span>
+                <div class="header-actions">
+                    <input type="file" id="file-input-2" class="hidden-input" multiple accept="audio/*">
+                    <input type="file" id="json-input-2" class="hidden-input" accept=".json">
+                    <input type="file" id="folder-input-2" class="hidden-input" webkitdirectory directory multiple>
+
+                    <button class="btn-small btn-library" onclick="deck2.triggerFolderLink()" title="Vincular Carpeta Local">📂 Link</button>
+                    <!-- BOTÓN NUEVO CON SEPARADOR -->
+                    <button id="d2-btn-viz" class="btn-small btn-spacer btn-viz-wave" onclick="deck2.toggleVizMode()" title="Cambiar Visualización">WAVEFORM</button>
+
+                    <button class="btn-small" onclick="deck2.triggerImport()">+ File</button>
+                    <button class="btn-small btn-danger-small" onclick="deck2.removeSelectedTrack()">- Track</button>
+                    <button class="btn-small btn-danger-small" onclick="deck2.clearPlaylist()">Clear</button>
+                    <button class="btn-small" onclick="deck2.savePlaylist()">Save JSON</button>
+                    <button class="btn-small" onclick="deck2.loadPlaylist()">Load JSON</button>
+                </div>
+            </div>
+            <div class="track-info-container">
+                <div class="waveform-wrapper"><canvas id="waveform-2" class="waveform-canvas"></canvas></div>
+                <div class="seek-bar-container"><input type="range" id="seek-2" class="seek-bar" min="0" value="0" step="0.1"></div>
+                <div class="info-content">
+                    <div class="info-row"><span><span class="label">NOW:</span> <span class="val-current song-name" id="d2-current">---</span></span><span class="time-display" id="d2-time-now">00:00 / 00:00</span></div>
+                    <div class="info-row"><span><span class="label">NEXT:</span> <span class="val-next song-name" id="d2-next">---</span></span><span class="time-display" id="d2-time-next">00:00</span></div>
+                </div>
+            </div>
+            <div class="deck-mid-section">
+                <div class="transport-group">
+                    <div class="controls-row-main">
+                        <button id="d2-btn-play" onclick="deck2.playPause()" class="btn-large btn-play">PLAY</button>
+                        <button onclick="deck2.stop()" class="btn-large btn-stop">STOP</button>
+                        <button onclick="deck2.gotoCue()" class="btn-large btn-cue">CUE</button>
+                        <button onclick="deck2.storeCue()" class="btn-large btn-store">MEM</button>
+                    </div>
+                    <div class="controls-row-sec">
+                        <button onclick="deck2.prev()" class="btn-sec">PREV</button>
+                        <button onclick="deck2.next()" class="btn-sec">NEXT</button>
+                        <button id="d2-mode-p1" onclick="deck2.setMode('play1')" class="btn-sec">1</button>
+                        <button id="d2-mode-pall" onclick="deck2.setMode('playAll')" class="btn-sec">ALL</button>
+                        <button id="d2-mode-l1" onclick="deck2.setMode('loop1')" class="btn-sec">L1</button>
+                        <button id="d2-mode-lall" onclick="deck2.setMode('loopAll')" class="btn-sec">L.ALL</button>
+                        <button id="d2-rnd" onclick="deck2.toggleRandom()" class="btn-sec">RND</button>
+                    </div>
+                </div>
+                <div class="drop-zone-side" id="drop-2">Arrastra<br>Archivos</div>
+            </div>
+            <div class="deck-body">
+                <div class="playlist-container"><ul class="playlist-list" id="list-2"></ul></div>
+                <div class="mixer-strip">
+                    <div class="fader-wrapper" id="fader-wrapper-2">
+                        <div class="fader-scale" id="fader-scale-2"><span>+6</span><span>0</span><span>-5</span><span>-10</span><span>-20</span><span>Min</span></div>
+                        <input type="range" id="vol-2" class="vertical-fader" min="0" max="1.2" step="0.01" value="1">
+                    </div>
+                    <div class="mixer-btn-group">
+                        <select id="time-out-2"><option value="2">2s</option><option value="4" selected>4s</option><option value="6">6s</option><option value="8">8s</option><option value="10">10s</option></select>
+                        <button class="btn-mixer" onclick="deck2.automateFade('out')">FADE OUT</button>
+                        <select id="time-in-2"><option value="2">2s</option><option value="4" selected>4s</option><option value="6">6s</option><option value="8">8s</option><option value="10">10s</option></select>
+                        <button class="btn-mixer" onclick="deck2.automateFade('in')">FADE IN</button>
+                        <button class="btn-mixer" onclick="deck2.automateZero()">0 dB (3s)</button>
+                        <button class="btn-mixer btn-mute" id="mute-2" onclick="deck2.toggleMute()">MUTE</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="mixer-area">
+        <button id="btn-auto-1-2" class="btn-automix-side" onclick="automixToRight()">AUTO<br>1 &rarr; 2<span>(Mezclar)</span></button>
+        <div class="crossfader-container">
+            <div class="fader-labels"><span>DECK 1</span><span>MIX</span><span>DECK 2</span></div>
+            <input type="range" id="crossfader" class="crossfader" min="0" max="100" value="50" step="1">
+            <div class="center-controls">
+                <button onclick="resetCrossfader()" class="btn-small">CENTER</button>
+                <select id="automix-time"><option value="1">1s</option><option value="2">2s</option><option value="4" selected>4s</option><option value="6">6s</option><option value="8">8s</option><option value="10">10s</option></select>
+            </div>
+        </div>
+        <button id="btn-auto-2-1" class="btn-automix-side" onclick="automixToLeft()">AUTO<br>2 &larr; 1<span>(Mezclar)</span></button>
+    </div>
+</div>
+
+<div id="footer-credits">Desarrollo: Erick Alarcón Bruna | Motor Optimizado para Sesiones Largas</div>
+
+<button id="help-btn" onclick="toggleHelp()">?</button>
+<div id="help-modal">
+    <div class="help-content">
+        <span class="close-help" onclick="toggleHelp()">&times;</span>
+        <h2>🎛️ Manual Maestro: Pro Player (Versión 3.1)</h2>
+        <p style="color:var(--accent); font-weight:bold; margin-top:-10px;">Desarrollo: Erick Alarcón Bruna</p>
+        <hr style="border-color:#333">
+
+        <h3>1. Descripción</h3>
+        <p>Pro Player es un reproductor de audio basado en la web. Funciona completamente en local (offline) y está diseñada con una arquitectura modular que separa dos Decks Principales para mezclas largas y un Rack de Efectos (FX) con 6 reproductores independientes para disparar samples, cuñas o efectos de sonido.</p>
+
+        <h3>2. Decks Principales (Deck 1 y Deck 2)</h3>
+        <p>Son el núcleo de la aplicación. Ambos decks son idénticos en funcionalidad.</p>
+
+        <h4>A. Gestión de Librería y Archivos</h4>
+        <ul>
+            <li><strong>📂 Link Folder (Vincular Carpeta):</strong> [FUNCIÓN CRÍTICA] Debido a la seguridad de los navegadores web, la aplicación no puede acceder a tu disco duro libremente. Este botón te permite seleccionar tu carpeta de música principal una sola vez por sesión. Esto da "permiso" al navegador para leer esos archivos, permitiendo que las funciones de guardar/cargar listas funcionen.</li>
+            <li><strong>+ File:</strong> Abre el explorador para añadir archivos individuales a la lista.</li>
+            <li><strong>Arrastrar y Soltar:</strong> Puedes arrastrar archivos de audio directamente al recuadro "Arrastra Archivos" o a la zona de Playlist.</li>
+            <li><strong>Save JSON:</strong> Guarda la lista de reproducción actual en un archivo de texto ligero (.json).</li>
+            <li><strong>Load JSON:</strong> Carga una lista previamente guardada. Nota: Solo funciona si primero has vinculado la carpeta donde están esos archivos usando "Link Folder".</li>
+            <li><strong>- Track:</strong> Elimina la canción seleccionada de la lista.</li>
+            <li><strong>Clear:</strong> Borra toda la lista de reproducción (solicita confirmación de seguridad).</li>
+        </ul>
+
+        <h4>B. Visualización</h4>
+        <ul>
+            <li><strong>Waveform (Forma de Onda):</strong> Un gráfico en tiempo real generado mediante análisis de frecuencias que muestra la estructura de la canción.</li>
+            <li><strong>Seek Bar:</strong> Barra debajo de la onda que permite saltar a cualquier punto de la canción instantáneamente.</li>
+            <li><strong>Display:</strong> Muestra Título Actual (NOW), Título Siguiente (NEXT), Tiempo Transcurrido y Tiempo Restante.</li>
+        </ul>
+
+        <h4>C. Controles de Transporte</h4>
+        <ul>
+            <li><strong>PLAY:</strong> Inicia la reproducción. Feedback Visual: El botón se ilumina y adquiere un borde de color cuando está activo.</li>
+            <li><strong>PAUSE:</strong> Pausa la reproducción manteniendo la posición.</li>
+            <li><strong>STOP:</strong> Detiene el audio y regresa el cabezal al inicio (00:00).</li>
+            <li><strong>MEM (Store Cue):</strong> Memoriza la posición actual exacta del cabezal.</li>
+            <li><strong>CUE:</strong> Regresa inmediatamente al punto memorizado con MEM y pausa el audio. Ideal para preparar "golpes" o entradas.</li>
+        </ul>
+
+        <h4>D. Modos de Reproducción</h4>
+        <ul>
+            <li><strong>1 (Play 1):</strong> Reproduce la canción actual y se detiene al finalizar.</li>
+            <li><strong>ALL (Play All):</strong> Reproduce toda la lista de forma continua.</li>
+            <li><strong>L1 (Loop 1):</strong> Repite la canción actual en bucle infinito.</li>
+            <li><strong>L.ALL (Loop All):</strong> Al terminar la lista, vuelve a empezar desde la primera canción.</li>
+            <li><strong>RND (Random):</strong> Reproducción aleatoria inteligente (no repite canciones hasta haber reproducido toda la lista).</li>
+        </ul>
+
+        <h4>E. Canal de Mezcla (Mixer Vertical)</h4>
+        <ul>
+            <li><strong>Fader de Volumen:</strong> Deslizador vertical de gran tamaño para precisión. Rango de 0 a 1.2 (permite una ganancia extra de +6dB sobre el original).</li>
+            <li><strong>FADE OUT:</strong> Automatiza la bajada de volumen a 0. Duración seleccionable (2, 4, 6, 8, 10 seg).</li>
+            <li><strong>FADE IN:</strong> Automatiza la subida de volumen al nivel nominal (100%).</li>
+            <li><strong>0 dB:</strong> Regresa el fader a su posición nominal suavemente en 3 segundos.</li>
+            <li><strong>MUTE:</strong> Silencia el audio instantáneamente sin perder la posición del fader.</li>
+        </ul>
+
+        <h3>3. Rack de Efectos (6 Mini Decks)</h3>
+        <p>Ubicados en la parte superior, diseñados para sonidos rápidos (Jingles, FX, Samples).</p>
+        <ul>
+            <li><strong>Carga:</strong> Arrastrar y soltar archivo en el recuadro. Muestra el nombre del archivo cargado.</li>
+            <li><strong>Transporte:</strong> Play/Pause, Stop, Cue, Mem (misma lógica que los decks principales).</li>
+            <li><strong>Volumen:</strong> Fader independiente con botón 0dB para resetear nivel rápidamente.</li>
+            <li><strong>F.OUT (Fade Out):</strong> Función exclusiva para bajar el volumen del efecto suavemente en 3, 6 o 9 segundos.</li>
+            <li><strong>QUITAR:</strong> Descarga el archivo del deck para dejarlo libre.</li>
+            <li><strong>Visual:</strong> El borde del Mini Deck cambia de color cuando está reproduciendo.</li>
+        </ul>
+
+        <h3>4. Sección Master (Crossfader & Automix)</h3>
+        <ul>
+            <li><strong>Crossfader:</strong> Deslizador horizontal que mezcla la señal entre el Deck 1 (Izquierda) y el Deck 2 (Derecha).</li>
+            <li><strong>CENTER:</strong> Centra el crossfader al 50% instantáneamente.</li>
+            <li><strong>AUTOMIX (Direccional):</strong>
+                <ul>
+                    <li><strong>AUTO 1 → 2:</strong> Realiza una mezcla suave moviendo el fader hacia la derecha en el tiempo seleccionado.</li>
+                    <li><strong>AUTO 2 ← 1:</strong> Realiza una mezcla suave moviendo el fader hacia la izquierda.</li>
+                </ul>
+            </li>
+            <li><strong>Seguridad:</strong> Si el usuario toca el fader manualmente durante una mezcla automática, el automix se cancela para dar control total al DJ.</li>
+        </ul>
+
+        <h3>5. ⌨️ Atajos de Teclado (Shortcuts)</h3>
+        <table class="shortcuts-table">
+            <thead>
+                <tr>
+                    <th>Acción</th>
+                    <th>Deck 1</th>
+                    <th>Deck 2</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Play / Pause</td>
+                    <td><span class="key-badge">Q</span></td>
+                    <td><span class="key-badge">U</span></td>
+                </tr>
+                <tr>
+                    <td>Stop</td>
+                    <td><span class="key-badge">W</span></td>
+                    <td><span class="key-badge">I</span></td>
+                </tr>
+                <tr>
+                    <td>Ir a CUE</td>
+                    <td><span class="key-badge">E</span></td>
+                    <td><span class="key-badge">O</span></td>
+                </tr>
+                <tr>
+                    <td>MEM (Guardar Cue)</td>
+                    <td><span class="key-badge">R</span></td>
+                    <td><span class="key-badge">P</span></td>
+                </tr>
+                <tr>
+                    <td>Canción Anterior</td>
+                    <td><span class="key-badge">A</span></td>
+                    <td><span class="key-badge">L</span></td>
+                </tr>
+                <tr>
+                    <td>Canción Siguiente</td>
+                    <td><span class="key-badge">S</span></td>
+                    <td><span class="key-badge">Ñ</span></td>
+                </tr>
+                <tr>
+                    <td>Limpiar Playlist</td>
+                    <td><span class="key-badge">Ctrl</span>+<span class="key-badge">Alt</span>+<span class="key-badge">Shift</span>+<span class="key-badge">1</span></td>
+                    <td><span class="key-badge">Ctrl</span>+<span class="key-badge">Alt</span>+<span class="key-badge">Shift</span>+<span class="key-badge">2</span></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+            <div style="flex:1; min-width:200px;">
+                <strong>Acción Automix</strong><br>
+                <ul>
+                    <li>Mezclar hacia Deck 2: <span class="key-badge">1</span></li>
+                    <li>Mezclar hacia Deck 1: <span class="key-badge">2</span></li>
+                </ul>
+            </div>
+            <div style="flex:1; min-width:200px;">
+                <strong>Mini Decks (FX)</strong><br>
+                <ul>
+                    <li>Play/Pause Deck 1-6: <span class="key-badge">Ctrl</span> + <span class="key-badge">1</span> a <span class="key-badge">6</span></li>
+                    <li>Stop Deck 1-6: <span class="key-badge">Alt</span> + <span class="key-badge">1</span> a <span class="key-badge">6</span></li>
+                </ul>
+            </div>
+        </div>
+
+        <h3>6. 🧠 Resumen de Lógica de Desarrollo (Back-end Logic)</h3>
+        <p>Para lograr un rendimiento profesional en un navegador, la aplicación utiliza tecnologías avanzadas de JavaScript:</p>
+
+        <h4>A. Arquitectura Orientada a Objetos (OOP)</h4>
+        <p>El código no es una lista desordenada de instrucciones. Se basa en Clases:</p>
+        <ul>
+            <li><strong>Clase DJDeck:</strong> Es el "plano" maestro. Se crean dos instancias (deck1 y deck2). Cualquier mejora en la lógica de esta clase se aplica automáticamente a ambos reproductores.</li>
+            <li><strong>Clase FXDeck:</strong> Una versión más ligera y optimizada de la clase anterior, diseñada para manejar los 6 mini reproductores con menos consumo de recursos.</li>
+        </ul>
+
+        <h4>B. Motor de Audio: Web Audio API</h4>
+        <p>No se usa el reproductor HTML estándar (<code>&lt;audio&gt;</code>). Se utiliza la Web Audio API para crear un grafo de audio profesional:</p>
+        <ul>
+            <li><strong>GainNode:</strong> Permite controlar el volumen con precisión matemática y lograr amplificación (+6dB) sin distorsión digital básica.</li>
+            <li><strong>AudioBuffer & Analyzer:</strong> Permite decodificar el archivo de audio completo en memoria para "dibujar" la forma de onda en el elemento <code>&lt;canvas&gt;</code> píxel por píxel.</li>
+        </ul>
+
+        <h4>C. Motor de Animación de Precisión</h4>
+        <p>Para las funciones de Automix y Fades, no se usan temporizadores inexactos (setInterval).</p>
+        <ul>
+            <li><strong>Algoritmo:</strong> Se usa <code>requestAnimationFrame</code> vinculado al reloj del procesador.</li>
+            <li><strong>Delta Time:</strong> El código calcula matemáticamente cuánto tiempo ha pasado desde el inicio de la animación (en milisegundos) y ajusta la posición del fader exactamente donde debería estar. Esto garantiza que un fade de 4 segundos dure exactamente 4.000ms, independientemente de si el ordenador es rápido o lento.</li>
+        </ul>
+
+        <h4>D. Gestión de Archivos Locales (Seguridad)</h4>
+        <p>Los navegadores bloquean el acceso a archivos locales (C:/Musica) por seguridad.</p>
+        <ul>
+            <li><strong>El Truco webkitdirectory:</strong> Al usar el botón "Link Folder", creamos un "mapa virtual" en la memoria RAM del navegador (<code>this.localLibrary</code>).</li>
+            <li><strong>Persistencia:</strong> Cuando guardas un JSON, solo guardamos el nombre del archivo ("cancion.mp3"). Al cargar el JSON, el programa busca ese nombre en el "mapa virtual" y, si encuentra coincidencia, recupera el archivo real y lo carga instantáneamente.</li>
+        </ul>
+
+        <h4>E. Motor de Visualización Híbrido (Rendimiento)</h4>
+        <p>Para manejar archivos de larga duración sin colapsar el navegador, se implementó un sistema inteligente:</p>
+        <ul>
+            <li><strong>Modo Waveform (Onda Estática):</strong> Para archivos < 50MB. Se decodifica todo el audio y se dibuja en un "Offscreen Canvas" (memoria invisible). Al reproducir, solo se copia la imagen, reduciendo el uso de CPU al 0%.</li>
+            <li><strong>Modo Live Spectrum (Espectro):</strong> Para archivos > 50MB (o a elección). No decodifica el archivo completo. Usa un <code>AnalyserNode</code> conectado a la salida de audio para leer frecuencias en tiempo real (FFT) y dibujar barras. Esto permite reproducir sets de horas sin consumir RAM extra.</li>
+        </ul>
+    </div>
+</div>
+
+<div id="context-menu"><ul><li onclick="handleDeleteRequest()">Eliminar Canción</li></ul></div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // Límite estricto de 50MB para la Waveform estática
+    const MAX_WAVEFORM_SIZE = 50 * 1024 * 1024;
+
+    window.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.effectAllowed = 'none'; e.dataTransfer.dropEffect = 'none'; }, false);
+    window.addEventListener('drop', (e) => { e.preventDefault(); }, false);
+
+    /* =========================================
+       CLASE FX DECK (CONTROLADOR DE EFECTOS)
+       ========================================= */
+    class FXDeck {
+        constructor(id, containerEl) {
+            this.id = id;
+            this.file = null;
+            this.cuePoint = 0;
+            this.isPlaying = false;
+            this.fadeInterval = null;
+            this.audio = new Audio();
+            this.audio.crossOrigin = "anonymous";
+            this.sourceNode = null;
+            this.gainNode = audioCtx.createGain();
+            this.gainNode.connect(audioCtx.destination);
+            try { this.sourceNode = audioCtx.createMediaElementSource(this.audio); this.sourceNode.connect(this.gainNode); } catch (e) {}
+
+            this.el = document.createElement('div');
+            this.el.className = 'mini-deck';
+            this.el.innerHTML = `
+                <div class="md-id">${id}</div>
+                <div class="md-main">
+                    <div class="md-drop-zone" id="md-drop-${id}">Arrastrar Archivo FX</div>
+                    <div class="md-time" id="md-time-${id}">00:00 / 00:00</div>
+                    <div class="md-controls">
+                        <button class="md-btn md-btn-play" id="md-play-${id}">PLAY</button>
+                        <button class="md-btn" id="md-stop-${id}">STOP</button>
+                        <button class="md-btn" id="md-cue-${id}">CUE</button>
+                        <button class="md-btn" id="md-mem-${id}">MEM</button>
+                        <div class="md-fade-group">
+                            <select class="md-fade-select" id="md-fade-time-${id}"><option value="3">3s</option><option value="6">6s</option><option value="9">9s</option></select>
+                            <button class="md-btn md-fade-btn" id="md-btn-fade-${id}">F.OUT</button>
+                        </div>
+                        <button class="md-btn md-btn-remove" id="md-rem-${id}">QUITAR</button>
+                    </div>
+                </div>
+                <div class="md-mixer">
+                    <div class="md-fader-wrap"><input type="range" class="md-fader" min="0" max="1.2" step="0.01" value="1" id="md-vol-${id}"></div>
+                    <button class="md-reset-btn" id="md-reset-${id}">0dB</button>
+                </div>
+            `;
+            containerEl.appendChild(this.el);
+
+            this.dropZone = this.el.querySelector(`#md-drop-${id}`);
+            this.timeEl = this.el.querySelector(`#md-time-${id}`);
+            this.playBtn = this.el.querySelector(`#md-play-${id}`);
+            this.volFader = this.el.querySelector(`#md-vol-${id}`);
+            this.resetBtn = this.el.querySelector(`#md-reset-${id}`);
+            this.fadeTimeSel = this.el.querySelector(`#md-fade-time-${id}`);
+            this.fadeBtn = this.el.querySelector(`#md-btn-fade-${id}`);
+
+            this.initEvents();
+            this.audio.addEventListener('timeupdate', () => this.updateTime());
+            this.audio.addEventListener('ended', () => { this.stop(); });
+        }
+
+        initEvents() {
+            this.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; this.dropZone.classList.add('drag-over'); });
+            this.dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); this.dropZone.classList.remove('drag-over'); });
+            this.dropZone.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); this.dropZone.classList.remove('drag-over'); if(e.dataTransfer.files.length > 0) this.loadFile(e.dataTransfer.files[0]); });
+            this.playBtn.onclick = () => this.playPause();
+            this.el.querySelector(`#md-stop-${this.id}`).onclick = () => this.stop();
+            this.el.querySelector(`#md-cue-${this.id}`).onclick = () => this.cue();
+            this.el.querySelector(`#md-mem-${this.id}`).onclick = () => this.mem();
+            this.el.querySelector(`#md-rem-${this.id}`).onclick = () => this.removeFile();
+            this.fadeBtn.onclick = () => this.startFadeOut();
+            this.volFader.addEventListener('input', () => { this.cancelFade(); this.updateVolume(); });
+            this.resetBtn.onclick = () => { this.cancelFade(); this.volFader.value = 1; this.updateVolume(); };
+        }
+
+        updateVolume() {
+            const val = parseFloat(this.volFader.value);
+            const gain = (val <= 1) ? val * val : 1 + ((val - 1) / 0.2);
+            this.gainNode.gain.setTargetAtTime(gain, audioCtx.currentTime, 0.05);
+        }
+
+        cancelFade() { if(this.fadeInterval) { cancelAnimationFrame(this.fadeInterval); this.fadeInterval = null; } }
+
+        startFadeOut() {
+            this.cancelFade();
+            const duration = parseInt(this.fadeTimeSel.value) * 1000;
+            const startVal = parseFloat(this.volFader.value);
+            const startTime = performance.now();
+            const animate = (currentTime) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                this.volFader.value = startVal * (1 - progress);
+                this.updateVolume();
+                if(progress < 1) { this.fadeInterval = requestAnimationFrame(animate); }
+                else { this.fadeInterval = null; this.volFader.value = 0; this.updateVolume(); }
+            };
+            this.fadeInterval = requestAnimationFrame(animate);
+        }
+
+        loadFile(file) {
+            if(!file.type.startsWith('audio/')) return;
+            // IMPORTANTE: Liberar memoria anterior si existía
+            if (this.audio.src) URL.revokeObjectURL(this.audio.src);
+            this.file = file;
+            this.audio.src = URL.createObjectURL(file);
+            this.dropZone.textContent = file.name;
+            this.dropZone.classList.add('has-file');
+            this.cuePoint = 0;
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+        }
+
+        removeFile() {
+            this.stop();
+            if (this.audio.src) URL.revokeObjectURL(this.audio.src); // Limpieza de memoria
+            this.file = null;
+            this.audio.src = "";
+            this.dropZone.textContent = "Arrastrar Archivo FX";
+            this.dropZone.classList.remove('has-file');
+            this.timeEl.textContent = "00:00 / 00:00";
+        }
+
+        playPause() {
+            if(!this.file) return;
+            if(this.audio.paused) { this.audio.play(); this.isPlaying = true; this.el.classList.add('active-play'); this.playBtn.textContent = "PAUSE"; }
+            else { this.audio.pause(); this.isPlaying = false; this.el.classList.remove('active-play'); this.playBtn.textContent = "PLAY"; }
+        }
+
+        stop() {
+            this.audio.pause(); this.audio.currentTime = 0; this.isPlaying = false;
+            this.el.classList.remove('active-play'); this.playBtn.textContent = "PLAY"; this.updateTime();
+        }
+
+        cue() { if(!this.file) return; this.audio.pause(); this.isPlaying = false; this.el.classList.remove('active-play'); this.playBtn.textContent = "PLAY"; this.audio.currentTime = this.cuePoint; }
+        mem() { if(this.file) this.cuePoint = this.audio.currentTime; }
+        updateTime() {
+            const cur = this.audio.currentTime; const dur = this.audio.duration || 0; const rem = dur - cur;
+            const fmt = (s) => { const m = Math.floor(s / 60); const sc = Math.floor(s % 60); return `${m}:${sc < 10 ? '0'+sc : sc}`; };
+            this.timeEl.textContent = `${fmt(cur)} / -${fmt(rem)}`;
+        }
+    }
+
+    /* ==========================================================================
+       CLASE DJ DECK (CONTROLADOR PRINCIPAL)
+       ========================================================================== */
+    class DJDeck {
+        constructor(id, dropZoneId, listId, fileInputId, jsonInputId, folderInputId, infoCurrentId, infoNextId, canvasId, timeNowId, timeNextId, seekBarId, volId, timeOutId, timeInId, muteId, playBtnId, faderWrapperId, faderScaleId, vizBtnId, statusId) {
+            this.id = id;
+            this.playlist = [];
+            this.localLibrary = {};
+            this.currentIndex = -1;
+            this.nextIndex = -1;
+            this.uiSelectedIndex = -1;
+            this.isPlaying = false;
+            this.playMode = 'playAll';
+            this.isRandom = false;
+            this.randomHistory = [];
+            this.cuePoint = 0;
+
+            // ESTADO DE VISUALIZACIÓN
+            // 'waveform' (Onda estática por defecto) o 'spectrum' (Tiempo real)
+            this.vizMode = 'waveform';
+            this.analyser = audioCtx.createAnalyser();
+            this.analyser.fftSize = 256;
+            this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+
+            this.audio = new Audio();
+            this.audio.crossOrigin = "anonymous";
+            this.sourceNode = null;
+            this.gainNode = audioCtx.createGain();
+            this.gainNode.connect(audioCtx.destination);
+
+            try {
+                this.sourceNode = audioCtx.createMediaElementSource(this.audio);
+                // Source -> Gain -> Analyzer -> Destination
+                this.sourceNode.connect(this.gainNode);
+                this.gainNode.connect(this.analyser);
+            } catch (e) {}
+
+            this.dropZone = document.getElementById(dropZoneId);
+            this.listEl = document.getElementById(listId);
+            this.fileInput = document.getElementById(fileInputId);
+            this.jsonInput = document.getElementById(jsonInputId);
+            this.folderInput = document.getElementById(folderInputId);
+            this.infoCurrent = document.getElementById(infoCurrentId);
+            this.infoNext = document.getElementById(infoNextId);
+            this.canvas = document.getElementById(canvasId);
+            this.ctx = this.canvas.getContext('2d');
+            this.timeNowEl = document.getElementById(timeNowId);
+            this.timeNextEl = document.getElementById(timeNextId);
+            this.seekBar = document.getElementById(seekBarId);
+            this.volFader = document.getElementById(volId);
+            this.timeOutSel = document.getElementById(timeOutId);
+            this.timeInSel = document.getElementById(timeInId);
+            this.muteBtn = document.getElementById(muteId);
+            this.playBtnDOM = document.getElementById(playBtnId);
+
+            // Nuevo botón de visualización y status
+            this.vizBtn = document.getElementById(vizBtnId);
+            this.statusEl = document.getElementById(statusId); // Nuevo elemento para mensaje
+
+            this.faderWrapper = document.getElementById(faderWrapperId);
+            this.faderScale = document.getElementById(faderScaleId);
+
+            // DOBLE BÚFER (OFFSCREEN CANVAS)
+            this.offscreenCanvas = document.createElement('canvas');
+            this.offscreenCtx = this.offscreenCanvas.getContext('2d');
+
+            this.isMuted = false;
+            this.animationFrameId = null;
+            this.currentBuffer = null;
+
+            this.initEvents();
+            this.updateModeUI();
+            this.resizeCanvas();
+            this.fitFaderHeight();
+            this.initFader();
+
+            this.audio.addEventListener('ended', () => this.handleTrackEnd());
+            this.audio.addEventListener('loadedmetadata', () => { this.seekBar.max = this.audio.duration; });
+            this.audio.addEventListener('timeupdate', () => {
+                this.updateTimeDisplay();
+                if(document.activeElement !== this.seekBar) this.seekBar.value = this.audio.currentTime;
+            });
+            window.addEventListener('resize', () => { this.resizeCanvas(); this.fitFaderHeight(); });
+            this.animate();
+        }
+
+        fitFaderHeight() {
+            if(this.faderWrapper) {
+                const availableHeight = this.faderWrapper.clientHeight;
+                const newHeight = availableHeight - 30;
+                const safeHeight = Math.max(100, newHeight);
+                this.volFader.style.width = `${safeHeight}px`;
+                this.faderScale.style.height = `${safeHeight - 10}px`;
+            }
+        }
+
+        initEvents() {
+            this.dropZone.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; this.dropZone.classList.add('drag-over'); });
+            this.dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); this.dropZone.classList.remove('drag-over'); });
+            this.dropZone.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); this.dropZone.classList.remove('drag-over'); if (e.dataTransfer.files.length > 0) this.addFiles(e.dataTransfer.files); });
+            this.fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) { this.addFiles(e.target.files); this.fileInput.value = ''; }});
+            this.jsonInput.addEventListener('change', (e) => { if(e.target.files.length > 0) this.processJsonImport(e.target.files[0]); this.jsonInput.value = ''; });
+            this.folderInput.addEventListener('change', (e) => { if(e.target.files.length > 0) { this.processFolderLink(e.target.files); this.folderInput.value = ''; } });
+            this.seekBar.addEventListener('input', () => { this.audio.currentTime = parseFloat(this.seekBar.value); this.updateTimeDisplay(); });
+            this.seekBar.addEventListener('change', () => { this.audio.currentTime = parseFloat(this.seekBar.value); });
+            this.volFader.addEventListener('input', () => { this.cancelFaderAutomation(); this.updateGain(); });
+            this.volFader.addEventListener('mousedown', () => this.cancelFaderAutomation());
+            this.volFader.addEventListener('touchstart', () => this.cancelFaderAutomation());
+        }
+
+        initFader() { this.updateGain(); }
+        updateGain() {
+            if (this.isMuted) { this.gainNode.gain.value = 0; } else {
+                const val = parseFloat(this.volFader.value);
+                let gain = (val <= 1) ? val * val : 1 + ((val - 1) / 0.2);
+                this.gainNode.gain.setTargetAtTime(gain, audioCtx.currentTime, 0.05);
+            }
+        }
+        toggleMute() { this.isMuted = !this.isMuted; this.muteBtn.classList.toggle('active', this.isMuted); this.updateGain(); }
+
+        cancelFaderAutomation() { if (this.animationFrameId) { cancelAnimationFrame(this.animationFrameId); this.animationFrameId = null; } }
+        runFaderAutomation(targetVal, durationMs) {
+            this.cancelFaderAutomation();
+            const startVal = parseFloat(this.volFader.value);
+            const startTime = performance.now();
+            const animate = (currentTime) => {
+                const elapsed = currentTime - startTime;
+                const progress = Math.min(elapsed / durationMs, 1);
+                this.volFader.value = startVal + (targetVal - startVal) * progress;
+                this.updateGain();
+                if (progress < 1) this.animationFrameId = requestAnimationFrame(animate); else this.animationFrameId = null;
+            };
+            this.animationFrameId = requestAnimationFrame(animate);
+        }
+        automateFade(type) { const duration = parseInt(type === 'out' ? this.timeOutSel.value : this.timeInSel.value) * 1000; this.runFaderAutomation(type === 'out' ? 0 : 1, duration); }
+        automateZero() { this.runFaderAutomation(1.0, 3000); }
+
+        removeSelectedTrack() { if (this.uiSelectedIndex !== -1) { this.deleteTrack(this.uiSelectedIndex); this.uiSelectedIndex = -1; } else { alert("Selecciona una canción."); } }
+        clearPlaylist() {
+            if (confirm(`¿Limpiar Playlist del Deck ${this.id}?`)) {
+                this.stop();
+                this.playlist.forEach(t => { if(t.url) URL.revokeObjectURL(t.url); });
+                this.playlist = []; this.currentIndex = -1; this.nextIndex = -1; this.uiSelectedIndex = -1;
+                this.renderPlaylist(); this.updateInfoDisplay();
+            }
+        }
+
+        savePlaylist() {
+            const exportData = this.playlist.map(t => ({ name: t.name }));
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportData));
+            const dlAnchorElem = document.createElement('a'); dlAnchorElem.setAttribute("href", dataStr); dlAnchorElem.setAttribute("download", `deck_${this.id}_playlist.json`); dlAnchorElem.click();
+        }
+        loadPlaylist() { this.jsonInput.click(); }
+        triggerFolderLink() { this.folderInput.click(); }
+
+        processFolderLink(files) {
+            let count = 0;
+            for(let file of files) { if(file.type.startsWith('audio/')) { this.localLibrary[file.name] = file; count++; } }
+            alert(`Carpeta vinculada! ${count} archivos detectados.`);
+            this.recheckOfflineFiles();
+        }
+        recheckOfflineFiles() {
+            let recovered = 0;
+            this.playlist.forEach((track, idx) => {
+                if(track.isOffline && this.localLibrary[track.name]) {
+                    const file = this.localLibrary[track.name];
+                    this.playlist[idx] = { name: file.name, url: URL.createObjectURL(file), file: file, isOffline: false };
+                    recovered++;
+                }
+            });
+            if(recovered > 0) { this.renderPlaylist(); alert(`Recuperadas ${recovered} canciones.`); }
+        }
+        processJsonImport(file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const tracks = JSON.parse(event.target.result);
+                    if (Array.isArray(tracks)) {
+                        tracks.forEach(t => {
+                            if(this.localLibrary[t.name]) {
+                                const f = this.localLibrary[t.name];
+                                this.playlist.push({ name: f.name, url: URL.createObjectURL(f), file: f, isOffline: false });
+                            } else { this.playlist.push({ name: t.name, url: "", file: null, isOffline: true }); }
+                        });
+                        this.renderPlaylist();
+                        if(this.playlist.length > 0 && this.currentIndex === -1) this.setNextTrackLogic(true);
+                    }
+                } catch(e) { alert("Error JSON"); }
+            };
+            reader.readAsText(file);
+        }
+
+        storeCue() { if (this.currentIndex === -1) return; this.cuePoint = this.audio.currentTime; }
+        gotoCue() { if (this.currentIndex === -1) return; this.audio.pause(); this.isPlaying = false; this.audio.currentTime = this.cuePoint; this.seekBar.value = this.cuePoint; this.updateTimeDisplay(); this.renderPlaylist(); this.updatePlayBtnState(); }
+        formatTime(seconds) { if (!seconds || isNaN(seconds)) return "00:00"; const m = Math.floor(seconds / 60); const s = Math.floor(seconds % 60); return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`; }
+        updateTimeDisplay() { if (this.currentIndex !== -1 && this.audio.duration) { const cur = this.audio.currentTime; const rem = this.audio.duration - cur; this.timeNowEl.textContent = `${this.formatTime(cur)} / -${this.formatTime(rem)}`; } else { this.timeNowEl.textContent = "00:00 / 00:00"; } }
+
+        resizeCanvas() {
+            this.canvas.width = this.canvas.parentElement.offsetWidth;
+            this.canvas.height = this.canvas.parentElement.offsetHeight;
+            this.offscreenCanvas.width = this.canvas.width;
+            this.offscreenCanvas.height = this.canvas.height;
+            if(this.vizMode === 'waveform' && this.currentBuffer) this.drawStaticWaveform();
+        }
+
+        /* ----------------------------------------------------
+           NUEVO: LÓGICA DE TOGGLE VISUALIZACIÓN
+           ---------------------------------------------------- */
+        toggleVizMode() {
+            // Si el botón está deshabilitado (archivo > 50MB), no hacer nada
+            if (this.vizBtn.disabled) return;
+
+            if (this.vizMode === 'waveform') {
+                this.vizMode = 'spectrum';
+                this.vizBtn.textContent = 'LIVE SPEC';
+                this.vizBtn.classList.remove('btn-viz-wave');
+                this.vizBtn.classList.add('btn-viz-spec');
+            } else {
+                this.vizMode = 'waveform';
+                this.vizBtn.textContent = 'WAVEFORM';
+                this.vizBtn.classList.remove('btn-viz-spec');
+                this.vizBtn.classList.add('btn-viz-wave');
+
+                // Si cambiamos a Waveform y tenemos buffer, redibujarlo
+                if (this.currentBuffer) this.drawStaticWaveform();
+                else if (this.currentIndex !== -1 && !this.playlist[this.currentIndex].isOffline) {
+                     // Si no hay buffer, intentar cargarlo
+                     this.loadAndDrawWaveform(this.playlist[this.currentIndex].file);
+                }
+            }
+        }
+
+        /* ----------------------------------------------------
+           OPTIMIZACIÓN: GESTIÓN HÍBRIDA DE WAVEFORM
+           ---------------------------------------------------- */
+        async loadAndDrawWaveform(file) {
+            this.currentBuffer = null;
+
+            // 1. Resetear interfaz
+            this.vizBtn.disabled = false;
+            this.vizBtn.classList.remove('btn-viz-disabled');
+            this.statusEl.textContent = "";
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+            // 2. CHECK DE SEGURIDAD (50MB)
+            if (file.size > MAX_WAVEFORM_SIZE) {
+                // Forzar modo Spectrum
+                this.vizMode = 'spectrum';
+
+                // Bloquear botón
+                this.vizBtn.textContent = 'LIVE SPEC (Locked)';
+                this.vizBtn.classList.remove('btn-viz-wave');
+                this.vizBtn.classList.add('btn-viz-spec');
+                this.vizBtn.classList.add('btn-viz-disabled');
+                this.vizBtn.disabled = true;
+
+                // Mostrar mensaje de estado
+                this.statusEl.textContent = "⚡ Modo Rendimiento";
+
+                // Mensaje en Canvas
+                this.ctx.fillStyle = "#333";
+                this.ctx.font = "bold 14px 'Segoe UI', sans-serif";
+                this.ctx.fillText("Modo Rendimiento Activo (>50MB)", 10, 25);
+
+                return; // IMPORTANTE: Salir aquí para no tocar la memoria
+            }
+
+            // Si pasa el check, configuramos para Waveform por defecto
+            this.vizMode = 'waveform';
+            this.vizBtn.textContent = 'WAVEFORM';
+            this.vizBtn.classList.remove('btn-viz-spec');
+            this.vizBtn.classList.add('btn-viz-wave');
+            this.ctx.fillStyle = "#333"; this.ctx.font = "bold 14px 'Segoe UI', sans-serif";
+            this.ctx.fillText("ANALIZANDO... Espere", 20, 35);
+
+            try {
+                // Decodificar (solo si es < 50MB)
+                const arrayBuffer = await file.arrayBuffer();
+                const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+                this.currentBuffer = audioBuffer;
+                this.drawStaticWaveform();
+            } catch (e) {
+                console.error("Error decode o memoria", e);
+                // Fallback automático si falla la memoria aunque sea < 50MB
+                this.vizMode = 'spectrum';
+                this.vizBtn.textContent = 'LIVE SPEC (Auto)';
+                this.vizBtn.classList.remove('btn-viz-wave');
+                this.vizBtn.classList.add('btn-viz-spec');
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+        }
+
+        drawStaticWaveform() {
+            if (!this.currentBuffer) return;
+            const w = this.offscreenCanvas.width; const h = this.offscreenCanvas.height;
+            const data = this.currentBuffer.getChannelData(0);
+            const step = Math.ceil(data.length / w); const amp = h / 2;
+
+            // Dibujamos en el contexto OFFSCREEN (invisible)
+            this.offscreenCtx.clearRect(0, 0, w, h);
+            this.offscreenCtx.fillStyle = '#00bcd4'; this.offscreenCtx.beginPath();
+
+            // Loop optimizado de dibujo
+            for (let i = 0; i < w; i++) {
+                let min = 1.0; let max = -1.0;
+                let datum;
+                for (let j = 0; j < step; j+=Math.max(1, Math.floor(step/10))) {
+                    datum = data[(i * step) + j];
+                    if (datum < min) min = datum; if (datum > max) max = datum;
+                }
+                this.offscreenCtx.fillRect(i, (1 + min) * amp, 1, Math.max(1, (max - min) * amp));
+            }
+            // Inmediatamente copiamos al visible
+            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            this.ctx.drawImage(this.offscreenCanvas, 0, 0);
+        }
+
+        /* LOOP DE ANIMACIÓN CENTRAL */
+        animate() {
+            if (this.audio.duration > 0 && !this.audio.paused) {
+                // RAMA A: Visualización en tiempo real (Spectrum)
+                if (this.vizMode === 'spectrum') {
+                    this.analyser.getByteFrequencyData(this.dataArray);
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                    const barWidth = (this.canvas.width / this.dataArray.length) * 2.5;
+                    let x = 0;
+                    this.ctx.fillStyle = '#ff9800'; // Color Naranja para Spectrum
+                    // Dibujo de barras de espectro
+                    for(let i = 0; i < this.dataArray.length; i++) {
+                        const barHeight = (this.dataArray[i] / 255) * this.canvas.height;
+                        this.ctx.fillRect(x, this.canvas.height - barHeight, barWidth, barHeight);
+                        x += barWidth + 1;
+                    }
+                    // Indicador de texto
+                    this.ctx.fillStyle = "rgba(255,255,255,0.5)";
+                    this.ctx.font = "10px sans-serif";
+                    this.ctx.fillText("LIVE SPECTRUM", 5, 15);
+
+                } else if (this.vizMode === 'waveform' && this.currentBuffer) {
+                    // RAMA B: Visualización Estática (Waveform)
+                    // OPTIMIZACIÓN CRÍTICA: Copiamos la imagen generada
+                    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                    this.ctx.drawImage(this.offscreenCanvas, 0, 0);
+
+                    // Dibujar cursor
+                    const pct = this.audio.currentTime / this.audio.duration;
+                    const x = Math.floor(pct * this.canvas.width);
+                    this.ctx.fillStyle = '#ff5252';
+                    this.ctx.fillRect(x, 0, 2, this.canvas.height);
+                }
+            }
+            requestAnimationFrame(() => this.animate());
+        }
+
+        triggerImport() { this.fileInput.click(); }
+
+        addFiles(files) {
+            for (let file of files) {
+                if (file.type.startsWith('audio/')) {
+                    this.playlist.push({ name: file.name, url: URL.createObjectURL(file), file: file, isOffline: false });
+                }
+            }
+            this.renderPlaylist();
+            if (this.currentIndex === -1 && this.playlist.length > 0) {
+                 const firstOnline = this.playlist.findIndex(t => !t.isOffline);
+                 if(firstOnline !== -1) this.setNextTrackLogic(true);
+            }
+        }
+
+        renderPlaylist() {
+            this.listEl.innerHTML = '';
+            this.playlist.forEach((track, index) => {
+                const li = document.createElement('li');
+                li.className = 'playlist-item';
+                if(track.isOffline) { li.style.color = '#777'; li.textContent = `[OFFLINE] ${track.name}`; }
+                else { li.textContent = `${index + 1}. ${track.name}`; }
+                if (index === this.currentIndex) li.classList.add('is-playing');
+                if (index === this.nextIndex && this.isPlaying) li.classList.add('is-next');
+                if (index === this.uiSelectedIndex) li.classList.add('selected-ui');
+                li.onclick = () => {
+                    this.uiSelectedIndex = index; this.renderPlaylist();
+                    if(track.isOffline) return;
+                    this.handleTrackSelection(index);
+                };
+                li.addEventListener('contextmenu', (e) => { e.preventDefault(); showContextMenu(e, this.id, index); });
+                this.listEl.appendChild(li);
+            });
+        }
+
+        handleTrackSelection(index) {
+            if (this.isPlaying) { this.nextIndex = index; this.updateInfoDisplay(); this.renderPlaylist(); }
+            else { this.playIndex(index); }
+        }
+
+        playIndex(index) {
+            if (index < 0 || index >= this.playlist.length) return;
+            if (this.playlist[index].isOffline) return;
+
+            // Limpieza de memoria (si había una canción anterior muy grande en buffer)
+            this.currentBuffer = null;
+
+            this.currentIndex = index;
+            const track = this.playlist[index];
+            this.audio.src = track.url;
+            this.isPlaying = false;
+            this.cuePoint = 0;
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+
+            // Carga inteligente de visualización
+            this.loadAndDrawWaveform(track.file);
+
+            this.calculateNextTrack();
+            this.updateInfoDisplay();
+            this.renderPlaylist();
+            this.updatePlayBtnState();
+        }
+
+        playPause() {
+            if (this.playlist.length === 0) return;
+            if (this.audio.paused) {
+                if (this.audio.src) { this.audio.play(); this.isPlaying = true; }
+                else { if (this.currentIndex !== -1) this.playIndex(this.currentIndex); else if (this.playlist.length > 0) this.playIndex(0); }
+            } else { this.audio.pause(); this.isPlaying = false; }
+            this.isPlaying = !this.audio.paused;
+            this.renderPlaylist();
+            this.updatePlayBtnState();
+        }
+        stop() {
+            this.audio.pause(); this.audio.currentTime = 0; this.isPlaying = false;
+            this.renderPlaylist(); this.updateTimeDisplay();
+            this.updatePlayBtnState();
+        }
+
+        updatePlayBtnState() {
+            if(this.isPlaying) this.playBtnDOM.classList.add('is-playing-btn');
+            else this.playBtnDOM.classList.remove('is-playing-btn');
+        }
+
+        prev() { let prev = this.currentIndex - 1; if (prev < 0) prev = this.playlist.length - 1; this.playIndex(prev); }
+        next() { if (this.nextIndex !== -1) this.playIndex(this.nextIndex); else { this.calculateNextTrack(); if (this.nextIndex !== -1) this.playIndex(this.nextIndex); }}
+
+        handleTrackEnd() {
+            switch (this.playMode) {
+                case 'play1': this.stop(); break;
+                case 'loop1': this.audio.currentTime = 0; this.audio.play(); break;
+                case 'playAll': case 'loopAll':
+                    if (this.nextIndex !== -1) { this.playIndex(this.nextIndex); this.audio.play(); this.isPlaying = true; this.updatePlayBtnState(); }
+                    else { this.stop(); }
+                    break;
+            }
+        }
+
+        calculateNextTrack() {
+            if (this.isRandom) this.nextIndex = this.getNextRandomIndex();
+            else {
+                let candidate = this.currentIndex + 1;
+                if (this.playMode === 'play1' || this.playMode === 'loop1') if (candidate >= this.playlist.length) candidate = 0;
+                if (candidate >= this.playlist.length) candidate = (this.playMode === 'loopAll') ? 0 : -1;
+                this.nextIndex = candidate;
+            }
+            this.updateInfoDisplay(); this.renderPlaylist();
+        }
+        setNextTrackLogic(force) { if (force) this.calculateNextTrack(); }
+        toggleRandom() {
+            this.isRandom = !this.isRandom;
+            const btn = document.getElementById(this.id === 1 ? 'd1-rnd' : 'd2-rnd');
+            btn.classList.toggle('active-mode', this.isRandom);
+            if (this.isPlaying) this.calculateNextTrack();
+        }
+        getNextRandomIndex() {
+            if (this.playlist.length === 0) return -1;
+            let available = [];
+            for (let i=0; i<this.playlist.length; i++) if (!this.randomHistory.includes(i) && !this.playlist[i].isOffline) available.push(i);
+            if (available.length === 0) {
+                this.randomHistory = [];
+                for (let i=0; i<this.playlist.length; i++) if (i !== this.currentIndex && !this.playlist[i].isOffline) available.push(i);
+                if (available.length === 0) available.push(this.currentIndex);
+            }
+            return available[Math.floor(Math.random() * available.length)];
+        }
+        setMode(mode) { this.playMode = mode; this.updateModeUI(); if (this.isPlaying) this.calculateNextTrack(); }
+        updateModeUI() {
+            const prefix = this.id === 1 ? 'd1' : 'd2';
+            const btnMap = { 'play1': document.getElementById(`${prefix}-mode-p1`), 'playAll': document.getElementById(`${prefix}-mode-pall`), 'loop1': document.getElementById(`${prefix}-mode-l1`), 'loopAll': document.getElementById(`${prefix}-mode-lall`) };
+            Object.values(btnMap).forEach(b => b.classList.remove('active-mode')); btnMap[this.playMode].classList.add('active-mode');
+        }
+        updateInfoDisplay() {
+            if (this.currentIndex !== -1 && this.playlist[this.currentIndex]) {
+                this.infoCurrent.textContent = this.playlist[this.currentIndex].name;
+                if (this.isRandom && !this.randomHistory.includes(this.currentIndex)) this.randomHistory.push(this.currentIndex);
+            } else this.infoCurrent.textContent = "---";
+            if (this.nextIndex !== -1 && this.playlist[this.nextIndex]) {
+                this.infoNext.textContent = this.playlist[this.nextIndex].name; this.timeNextEl.textContent = "--:--";
+            } else { this.infoNext.textContent = "Fin de Playlist"; this.timeNextEl.textContent = "00:00"; }
+        }
+        deleteTrack(index) {
+            if (index === this.currentIndex && this.isPlaying) { this.stop(); this.currentIndex = -1; }
+            if (this.playlist[index].url) URL.revokeObjectURL(this.playlist[index].url); // Limpiar RAM
+            this.playlist.splice(index, 1);
+            if (this.currentIndex > index) this.currentIndex--; if (this.nextIndex > index) this.nextIndex--;
+            if (this.playlist.length === 0) { this.currentIndex = -1; this.nextIndex = -1; } else this.calculateNextTrack();
+            this.renderPlaylist(); this.updateInfoDisplay();
+        }
+    }
+
+    /* INICIALIZACIÓN */
+    const fxPanel = document.getElementById('fx-panel');
+    const fxDecks = [];
+    for(let i=1; i<=6; i++) { fxDecks.push(new FXDeck(i, fxPanel)); }
+
+    // PASAMOS EL ID DEL NUEVO BOTÓN Y STATUS AL CONSTRUCTOR
+    const deck1 = new DJDeck(1, 'drop-1', 'list-1', 'file-input-1', 'json-input-1', 'folder-input-1', 'd1-current', 'd1-next', 'waveform-1', 'd1-time-now', 'd1-time-next', 'seek-1', 'vol-1', 'time-out-1', 'time-in-1', 'mute-1', 'd1-btn-play', 'fader-wrapper-1', 'fader-scale-1', 'd1-btn-viz', 'd1-status');
+    const deck2 = new DJDeck(2, 'drop-2', 'list-2', 'file-input-2', 'json-input-2', 'folder-input-2', 'd2-current', 'd2-next', 'waveform-2', 'd2-time-now', 'd2-time-next', 'seek-2', 'vol-2', 'time-out-2', 'time-in-2', 'mute-2', 'd2-btn-play', 'fader-wrapper-2', 'fader-scale-2', 'd2-btn-viz', 'd2-status');
+
+    /* CROSSFADER */
+    const crossfader = document.getElementById('crossfader');
+    const btnAuto1to2 = document.getElementById('btn-auto-1-2');
+    const btnAuto2to1 = document.getElementById('btn-auto-2-1');
+    let crossfaderAnimId = null;
+
+    function updateCrossfader() {
+        const val = parseInt(crossfader.value);
+        let vol1, vol2;
+        if (val <= 50) { vol1 = 1; vol2 = val / 50; } else { vol1 = (100 - val) / 50; vol2 = 1; }
+        deck1.audio.volume = vol1; deck2.audio.volume = vol2;
+    }
+    crossfader.addEventListener('input', () => { if(crossfaderAnimId) { cancelAnimationFrame(crossfaderAnimId); crossfaderAnimId = null; enableAutomixButtons(); } updateCrossfader(); });
+    updateCrossfader();
+
+    function resetCrossfader() { if(crossfaderAnimId) cancelAnimationFrame(crossfaderAnimId); crossfader.value = 50; updateCrossfader(); enableAutomixButtons(); }
+    function disableAutomixButtons() { btnAuto1to2.disabled = true; btnAuto2to1.disabled = true; }
+    function enableAutomixButtons() { btnAuto1to2.disabled = false; btnAuto2to1.disabled = false; }
+    function runAutomix(targetVal) {
+        if(crossfaderAnimId) cancelAnimationFrame(crossfaderAnimId);
+        disableAutomixButtons();
+        const duration = parseInt(document.getElementById('automix-time').value) * 1000;
+        const startVal = parseInt(crossfader.value);
+        const startTime = performance.now();
+        const animateMix = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+            crossfader.value = startVal + (targetVal - startVal) * progress;
+            updateCrossfader();
+            if (progress < 1) crossfaderAnimId = requestAnimationFrame(animateMix); else { crossfaderAnimId = null; enableAutomixButtons(); }
+        };
+        crossfaderAnimId = requestAnimationFrame(animateMix);
+    }
+    function automixToRight() { runAutomix(100); }
+    function automixToLeft() { runAutomix(0); }
+
+    /* SHORTCUTS */
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'Digit1') { e.preventDefault(); deck1.clearPlaylist(); return; }
+        if (e.ctrlKey && e.altKey && e.shiftKey && e.code === 'Digit2') { e.preventDefault(); deck2.clearPlaylist(); return; }
+        const key = e.key.toUpperCase();
+
+        // Atajos Mini Decks PLAY (Ctrl + 1 al 6)
+        if (e.ctrlKey && !e.altKey && !e.shiftKey) {
+            if (e.key >= '1' && e.key <= '6') { e.preventDefault(); const idx = parseInt(e.key) - 1; if(fxDecks[idx]) fxDecks[idx].playPause(); return; }
+        }
+
+        // Atajos Mini Decks STOP (Alt + 1 al 6) - NUEVO
+        if (e.altKey && !e.ctrlKey && !e.shiftKey) {
+            if (e.key >= '1' && e.key <= '6') {
+                e.preventDefault();
+                const idx = parseInt(e.key) - 1;
+                if(fxDecks[idx]) fxDecks[idx].stop();
+                return;
+            }
+        }
+
+        if (!e.ctrlKey && !e.altKey && !e.shiftKey) {
+            if (key === '1') { e.preventDefault(); automixToRight(); return; }
+            if (key === '2') { e.preventDefault(); automixToLeft(); return; }
+            switch(key) { case 'Q': deck1.playPause(); break; case 'W': deck1.stop(); break; case 'E': deck1.gotoCue(); break; case 'R': deck1.storeCue(); break; case 'A': deck1.prev(); break; case 'S': deck1.next(); break; }
+            switch(key) { case 'U': deck2.playPause(); break; case 'I': deck2.stop(); break; case 'O': deck2.gotoCue(); break; case 'P': deck2.storeCue(); break; case 'L': deck2.prev(); break; case 'Ñ': deck2.next(); break; }
+        }
+    });
+
+    function toggleHelp() { const modal = document.getElementById('help-modal'); modal.style.display = (modal.style.display === 'flex') ? 'none' : 'flex'; }
+    window.onclick = function(event) { const modal = document.getElementById('help-modal'); if (event.target == modal) modal.style.display = 'none'; }
+
+    const contextMenu = document.getElementById('context-menu');
+    let contextTarget = { deckId: null, index: null };
+    function showContextMenu(e, deckId, index) { contextTarget = { deckId, index }; contextMenu.style.display = 'block'; contextMenu.style.left = `${e.pageX}px`; contextMenu.style.top = `${e.pageY}px`; }
+    function hideContextMenu() { contextMenu.style.display = 'none'; contextTarget = { deckId: null, index: null }; }
+    function handleDeleteRequest() { if (contextTarget.deckId === 1) deck1.deleteTrack(contextTarget.index); if (contextTarget.deckId === 2) deck2.deleteTrack(contextTarget.index); hideContextMenu(); }
+    document.addEventListener('click', (e) => { if (e.target.closest('#context-menu') === null) hideContextMenu(); });
+
+</script>
+</body>
+</html>
